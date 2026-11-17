@@ -82,3 +82,29 @@ The tests use fake data, so they don't hit any real service.
 ## License
 
 MIT, see [LICENSE](LICENSE). Use it, change it, learn from it, just keep the copyright line.
+
+## Resolution age filter
+
+Use `--days` to limit passive DNS resolutions to recent UTC calendar dates:
+
+```powershell
+py .\pivot_out.py 'cdn-gstat[.]com' --days 90
+```
+
+Resolutions dated today through 90 days ago are included. Older resolutions
+are excluded before being saved or used for IP-neighbor lookups.
+
+- Omitting `--days` preserves the original behavior.
+- `--days 0` includes only today's resolutions.
+- Negative values are rejected.
+- Missing, invalid, and future dates are excluded when filtering is enabled.
+- Registration and certificate records are not filtered.
+- Neighbor dates are still evaluated separately using `--window`.
+- The filter does not establish current ownership or malicious activity.
+
+The date-filter tests use a fixed reference date and require no API access.
+Run the full suite with:
+
+```powershell
+py -m unittest
+```

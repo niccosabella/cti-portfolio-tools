@@ -282,8 +282,23 @@ def lookup_ip_neighbors(ip, api_key):
 
 
 # ---------- Putting it together ----------
+def resolution_is_recent(date_text, days, today=None):
+    """Keep resolutions within the last N UTC calendar days."""
+    if days is None:
+        return True
 
-def pivot(start, rounds, max_domains, vt_key, neighbors=True, window=7):
+    if today is None:
+        today = datetime.now(timezone.utc).date()
+
+    try:
+        observed = datetime.strptime(date_text, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return False
+
+    age = (today - observed).days
+    return 0 <= age <= days
+
+def pivot(start, rounds, max_domains, vt_key, neighbors=True, window=7, days=None):
     """Run the whole pivot from one starting domain and return the list of findings.
 
     rounds:      how many times to loop through newly found SANs
@@ -351,6 +366,14 @@ def pivot(start, rounds, max_domains, vt_key, neighbors=True, window=7):
 
             if vt_key:
                 for res in lookup_resolutions(domain, vt_key):
+                    if not resolution_is_recent(res.get("date"), days):
+                        print(
+                            f"    skipping resolution outside --days filter: "
+                            f"{res['ip']} ({res.get('date')})",
+                            file=sys.stderr,
+                        )
+                        continue
+
                     provider = shared_network(res["ip"])
                     note = f"{provider} IP, shared by tons of unrelated sites, not pivoting on it" if provider else ""
                     add("resolution", res["ip"], domain, "VirusTotal", res["date"], res["query"], note)
@@ -412,7 +435,16 @@ def main():
                         help="don't ask VT what else lived on each IP (saves your free VT quota)")
     parser.add_argument("--window", type=int, default=7,
                         help="days apart that still count as 'same time' for IP neighbors (default 7)")
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=None,
+        help="ignore resolutions older than this many days (default: no age limit)",
+    )
     args = parser.parse_args()
+
+    if args.days is not None and args.days < 0:
+        parser.error("--days must be zero or greater")
 
     start = clean_domain(refang(args.domain))
     if not is_valid_domain(start):
@@ -422,8 +454,12 @@ def main():
     if not vt_key:
         print("No VT_API_KEY set, skipping passive DNS. (Free key: virustotal.com, then Profile > API Key.)", file=sys.stderr)
 
-    findings = pivot(start, args.rounds, args.max_domains, vt_key,
-                     neighbors=not args.skip_neighbors, window=args.window)
+    findings = pivot(
+        start, args.rounds, args.max_domains, vt_key,
+        neighbors=not args.skip_neighbors,
+        window=args.window,
+        days=args.days,
+    )
     base = save(findings, start, args.out)
 
     domains = {f["value"] for f in findings if f["type"] == "san"}
